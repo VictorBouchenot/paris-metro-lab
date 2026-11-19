@@ -23,13 +23,20 @@ python -m unittest discover -s tests
 ```
 
 Example output for `route "Porte de Clignancourt" "Olympiades"` (Tue
-2026-11-24, 08:30):
+2026-11-24, requested departure 08:30):
 
 ```
 line   4  08:30 Porte de Clignancourt -> 08:45 Châtelet
 line  14  08:48 Châtelet -> 08:56 Olympiades
 Total: 27 min (in-vehicle + modeled transfers, theoretical timetable)
 ```
+
+Duration convention: a reported duration is computed in seconds from the
+*requested* departure time to the scheduled arrival, so it includes waiting
+for the first train (here the first métro leaves 30 s after 08:30). Displayed
+clock times are truncated to the minute (08:30:30 shows as 08:30); the total
+is rounded to the nearest minute from the exact seconds (here 1608 s = 26.8
+min, shown as 27).
 
 `isochrone` draws every station colored by travel-time band from the origin
 (and optionally an animated GIF of the reachable area growing minute by
@@ -64,29 +71,40 @@ Two layers, kept separate on purpose.
 connections from a weekday, start a scan at the connection's origin one
 minute before its departure, and check that the router reaches the
 connection's destination no later than its scheduled arrival: 50/50 pass.
-Ten unit tests cover the algorithm itself (transfer penalties, staying on
-the same trip, walking links, post-midnight times, calendar exceptions,
-itinerary reconstruction).
+This shows the router can ride sampled scheduled connections; it does **not**
+by itself prove that returned routes are optimal or that every transfer is
+modeled correctly. Ten unit tests cover the algorithm itself (transfer
+penalties, staying on the same trip, walking links, post-midnight times,
+calendar exceptions, itinerary reconstruction).
 
 **2. External comparison.** Computed times vs. the fastest-route estimates
-published by itineraire-metro.paris (consulted 2026-11-19), which — like our
-model — exclude walking to/from the stations and the initial wait:
+published by itineraire-metro.paris (consulted 2026-11-19), whose pages
+state they exclude walking to/from the stations and the wait to reach them.
+Same requested departure for all three: Tue 2026-11-24, 08:30.
 
-| Route | Ours | Published | Diff |
+| Route | Ours | Published | Diff (ours − published) |
 |---|---|---|---|
-| Châtelet → La Défense | 21 min | 27 min | −6 min |
-| Porte de Clignancourt → Olympiades | 27 min | 32 min | −5 min |
-| Nation → Porte de Champerret | 27 min | 40 min | −13 min |
+| Châtelet → La Défense | 21.0 min | 27 min | −6.0 min |
+| Porte de Clignancourt → Olympiades | 26.8 min | 32 min | −5.2 min |
+| Nation → Porte de Champerret | 26.5 min | 40 min | −13.5 min |
 
-Our times are systematically lower, and we can say why rather than hide it:
-we board at the requested departure time exactly (zero initial wait), while
-the reference pads each segment (its own per-stop times work out to about
-2.7 min/stop, against ~1.4 min in the official timetable). On the third
-route the two also disagree on the path: we go line 1 → 14 → walk
-Saint-Lazare–Europe → line 3, matching the real network's fastest pattern,
-while the reference routes through Châtelet. The comparison therefore
-validates order of magnitude and routing plausibility, not exact equality —
-these are third-party estimates, not official IDFM figures.
+What we know about these gaps, and what we do not:
+
+- Our durations are exact to the second from the requested time and already
+  include the wait for the first train (e.g. 87 s at Châtelet: first
+  departure 08:31:27 for a 08:30:00 request).
+- The reference site does not document its model, so we cannot explain the
+  residual differences from the inside. They are third-party estimates, not
+  official IDFM figures, and neither side is measured against real-world
+  travel times here: our numbers come from the theoretical timetable, which
+  is not the same as what happens on the tracks.
+- On the third pair the two routers also choose different paths (ours:
+  line 1 → 14 → walk Saint-Lazare–Europe → line 3; theirs goes through
+  Châtelet), which alone accounts for part of the larger gap.
+
+The comparison therefore supports order of magnitude and routing
+plausibility only. It does not show our model is more accurate than the
+reference.
 
 ## Limits (read before trusting a number)
 

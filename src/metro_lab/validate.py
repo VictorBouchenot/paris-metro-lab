@@ -30,9 +30,10 @@ class Reference:
     source: str  # where the figure comes from + when it was consulted
 
 
-# Third-party published estimates that exclude initial walking and waiting
-# time, captured from itineraire-metro.paris on 2026-11-19. They are not
-# official IDFM figures; see README "Validation" for what the comparison means.
+# Third-party published estimates whose pages state they exclude walking
+# to/from the stations and the wait to reach them; captured from
+# itineraire-metro.paris on 2026-11-19. They are not official IDFM figures;
+# see README "Validation" for what the comparison does and does not show.
 SRC = "itineraire-metro.paris, consulted 2026-11-19 (excl. walking/waiting)"
 REFERENCES: list[Reference] = [
     Reference("Châtelet", "La Défense", 27, SRC),
