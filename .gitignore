@@ -1,0 +1,6 @@
+data/
+__pycache__/
+*.pyc
+examples/*.png
+examples/*.gif
+.DS_Store
