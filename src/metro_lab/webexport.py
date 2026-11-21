@@ -100,11 +100,19 @@ INDEX_HTML = """<!DOCTYPE html>
   label { font-size: .9rem; margin-right: .4rem; }
   select, button { font-size: .9rem; padding: .25rem .4rem; margin-right: .8rem; }
   #bar { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; margin-bottom: .6rem; }
-  #map { background: #fff; border: 1px solid #ddd; border-radius: 6px; max-width: 900px; width: 100%; }
+  #map { background: #fff; border: 1px solid #ddd; border-radius: 6px; max-width: 900px; width: 100%; touch-action: manipulation; }
   #legend { font-size: .85rem; margin-top: .5rem; }
+  .li { display: inline-block; white-space: nowrap; }
   .sw { display: inline-block; width: .8rem; height: .8rem; border-radius: 50%; margin: 0 .25rem 0 .8rem; vertical-align: middle; }
   #slider { width: 220px; }
   #minlabel { font-weight: 600; min-width: 5.5rem; display: inline-block; }
+  #readout { font-size: .95rem; min-height: 1.3rem; margin: .3rem 0; font-weight: 600; }
+  .hint { font-size: .8rem; color: #666; margin-top: .4rem; }
+  @media (max-width: 600px) {
+    body { margin: .7rem; }
+    select, button { font-size: 1rem; padding: .45rem .6rem; }
+    #slider { width: 150px; }
+  }
 </style>
 </head>
 <body>
@@ -118,8 +126,11 @@ Temps calculés depuis l'heure demandée, attente du premier train incluse. Mét
   <span id="minlabel"></span>
   <button id="play">▶ Animer</button>
 </div>
+<div id="readout">Touche une station pour voir son temps de trajet.</div>
 <svg id="map" viewBox="0 0 900 900"></svg>
 <div id="legend"></div>
+<div class="hint">Stations colorées = atteignables dans le budget choisi ; stations grises = au-delà du budget.
+Chaque couleur correspond exactement à une bande de 10 minutes de la légende.</div>
 <script>
 const NS = "http://www.w3.org/2000/svg";
 const svg = document.getElementById("map");
@@ -130,12 +141,21 @@ const minlabel = document.getElementById("minlabel");
 const legend = document.getElementById("legend");
 let DATA = null, playing = null;
 
-function color(t, maxMin) {  // viridis-like ramp, t in [0,1]
+function ramp(t) {  // viridis-like ramp, t in [0,1]
   const stops = [[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]];
   const x = Math.min(Math.max(t, 0), 1) * (stops.length - 1);
   const i = Math.floor(x), f = x - i, j = Math.min(i + 1, stops.length - 1);
   const c = stops[i].map((v, k) => Math.round(v + (stops[j][k] - v) * f));
   return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+
+const BANDS = [10, 20, 30, 40, 50, 60];
+// One discrete color per 10-minute band, sampled at the band center so the
+// legend swatch and the points of that band are exactly the same color.
+const BAND_COLORS = BANDS.map(b => ramp(1 - (b - 5) / 60));
+function bandColor(m) {
+  for (let i = 0; i < BANDS.length; i++) if (m <= BANDS[i]) return BAND_COLORS[i];
+  return null;  // beyond 60 min: not drawn colored
 }
 
 function project(lat, lon, bb) {
@@ -152,17 +172,30 @@ function render() {
   svg.innerHTML = "";
   const st = DATA.stations, mins = DATA.minutes[oi][ti];
   const bb = DATA.bbox;
-  // draw reachable first (big bands under), origin last
+  const readout = document.getElementById("readout");
+  // every station as a grey dot first; reachable ones colored on top
   for (let i = 0; i < st.length; i++) {
-    const m = mins[i];
-    if (m === null || m > budget) continue;
     const [x, y] = project(st[i].lat, st[i].lon, bb);
+    const m = mins[i];
+    const within = m !== null && m <= budget;
     const c = document.createElementNS(NS, "circle");
-    c.setAttribute("cx", x); c.setAttribute("cy", y); c.setAttribute("r", 6);
-    c.setAttribute("fill", color(1 - m / 60));
+    c.setAttribute("cx", x); c.setAttribute("cy", y);
+    c.setAttribute("r", within ? 7 : 4);
+    c.setAttribute("fill", within ? bandColor(m) : "#cfcfcf");
+    c.style.cursor = "pointer";
     const t = document.createElementNS(NS, "title");
-    t.textContent = `${st[i].name} — ${Math.round(m)} min`;
-    c.appendChild(t); svg.appendChild(c);
+    t.textContent = m === null ? st[i].name : `${st[i].name} — ${Math.round(m)} min`;
+    c.appendChild(t);
+    c.addEventListener("click", () => {          // tap-friendly readout
+      readout.textContent = m === null
+        ? `${st[i].name} : pas atteignable dans la journée calculée.`
+        : `${st[i].name} : ${Math.round(m)} min depuis ${st[oi].name} (${DATA.departures[ti]}).`;
+      svg.querySelectorAll("circle[data-sel]").forEach(e => e.removeAttribute("data-sel"));
+      c.setAttribute("data-sel", "1");
+      c.setAttribute("stroke", "#000"); c.setAttribute("stroke-width", "2");
+      svg.querySelectorAll("circle").forEach(e => { if (e !== c) { e.removeAttribute("stroke"); e.removeAttribute("stroke-width"); } });
+    });
+    svg.appendChild(c);
   }
   const [ox, oy] = project(st[oi].lat, st[oi].lon, bb);
   const star = document.createElementNS(NS, "text");
@@ -171,10 +204,10 @@ function render() {
   star.textContent = "★"; star.setAttribute("fill", "#d62728");
   svg.appendChild(star);
   let lg = "";
-  for (const b of [10, 20, 30, 40, 50, 60]) {
-    lg += `<span class="sw" style="background:${color(1 - b / 60)}"></span>≤ ${b} min`;
-  }
-  legend.innerHTML = lg;
+  BANDS.forEach((b, i) => {
+    lg += `<span class="li"><span class="sw" style="background:${BAND_COLORS[i]}"></span>≤ ${b} min</span>`;
+  });
+  legend.innerHTML = lg + `<span class="li"><span class="sw" style="background:#cfcfcf"></span>au-delà du budget</span>`;
 }
 
 function togglePlay() {
@@ -210,9 +243,19 @@ fetch("data.json").then(r => r.json()).then(d => {
   }
   if (q.has("time")) dtimeSel.value = q.get("time");
   if (q.has("min")) slider.value = q.get("min");
+  if (q.has("focus")) {  // pre-select a station in the readout (deep links, tests)
+    window._focus = q.get("focus");
+  }
   originSel.onchange = dtimeSel.onchange = slider.oninput = render;
   document.getElementById("play").onclick = togglePlay;
   render();
+  if (window._focus) {  // simulate a tap on the named station
+    const i = DATA.stations.findIndex(s => s.name === window._focus);
+    if (i >= 0) {
+      const circles = svg.querySelectorAll("circle");
+      if (circles[i]) circles[i].dispatchEvent(new Event("click"));
+    }
+  }
 });
 </script>
 </body>
