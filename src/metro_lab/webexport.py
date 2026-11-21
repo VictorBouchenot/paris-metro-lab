@@ -52,6 +52,42 @@ def write_web(
     return dump_web(net, stations, matrix, date, time_labels, out_dir)
 
 
+def build_edges(net: gtfs.MetroNetwork, stations: list[str]) -> tuple[list[dict], list[list[int]]]:
+    """Unique station-to-station segments per metro line, for map drawing.
+
+    Returns (lines, edges): lines is [{name, color}] from the feed's own
+    route_color, edges is [[station_idx_a, station_idx_b, line_idx]].
+    """
+    idx = {s: i for i, s in enumerate(stations)}
+    route_names = dict(zip(net.routes.route_id, net.routes.route_short_name))
+    route_colors = dict(zip(net.routes.route_id, net.routes.route_color))
+    trip_route = dict(zip(net.trips.trip_id, net.trips.route_id))
+    st = net.stop_times.sort_values(
+        ["trip_id", "stop_sequence"], key=lambda c: c.astype(int) if c.name == "stop_sequence" else c
+    )
+    st["next_stop"] = st.groupby("trip_id").stop_id.shift(-1)
+    st = st.dropna(subset=["next_stop"])
+    lines: list[dict] = []
+    line_idx: dict[str, int] = {}
+    seen: set[tuple] = set()
+    edges: list[list[int]] = []
+    for trip_id, a, b in zip(st.trip_id, st.stop_id, st.next_stop):
+        sa, sb = net.stop_to_station.get(a), net.stop_to_station.get(b)
+        if sa is None or sb is None or sa == sb or sa not in idx or sb not in idx:
+            continue
+        route_id = trip_route[trip_id]
+        key = (min(sa, sb), max(sa, sb), route_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        if route_id not in line_idx:
+            line_idx[route_id] = len(lines)
+            color = route_colors.get(route_id, "888888")
+            lines.append({"name": route_names.get(route_id, "?"), "color": f"#{color}"})
+        edges.append([idx[sa], idx[sb], line_idx[route_id]])
+    return lines, edges
+
+
 def dump_web(
     net: gtfs.MetroNetwork,
     stations: list[str],
@@ -65,9 +101,12 @@ def dump_web(
     q[q > CAP_MINUTES] = np.nan
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    lines, edges = build_edges(net, stations)
     payload = {
         "date": date.strftime("%Y-%m-%d"),
         "departures": time_labels,
+        "lines": lines,
+        "edges": edges,
         "stations": [
             {
                 "name": net.stations.stop_name[s],
@@ -94,24 +133,32 @@ INDEX_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>paris-metro-lab — isochrones interactives</title>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 1.5rem; background: #fafafa; color: #222; }
-  h1 { font-size: 1.2rem; margin-bottom: .2rem; }
-  .sub { font-size: .85rem; color: #555; margin-bottom: .8rem; }
-  label { font-size: .9rem; margin-right: .4rem; }
-  select, button { font-size: .9rem; padding: .25rem .4rem; margin-right: .8rem; }
-  #bar { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; margin-bottom: .6rem; }
-  #map { background: #fff; border: 1px solid #ddd; border-radius: 6px; max-width: 900px; width: 100%; touch-action: manipulation; }
-  #legend { font-size: .85rem; margin-top: .5rem; }
-  .li { display: inline-block; white-space: nowrap; }
-  .sw { display: inline-block; width: .8rem; height: .8rem; border-radius: 50%; margin: 0 .25rem 0 .8rem; vertical-align: middle; }
-  #slider { width: 220px; }
-  #minlabel { font-weight: 600; min-width: 5.5rem; display: inline-block; }
-  #readout { font-size: .95rem; min-height: 1.3rem; margin: .3rem 0; font-weight: 600; }
-  .hint { font-size: .8rem; color: #666; margin-top: .4rem; }
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 1rem;
+         background: #0d1117; color: #e6edf3; max-width: 980px; margin-inline: auto; }
+  h1 { font-size: 1.1rem; margin: 0 0 .25rem; letter-spacing: .2px; }
+  .sub { font-size: .78rem; color: #8b949e; line-height: 1.45; margin-bottom: .9rem; }
+  #bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .55rem; }
+  label { font-size: .85rem; color: #8b949e; display: flex; align-items: center; gap: .4rem; }
+  select, button { background: #161b22; color: #e6edf3; border: 1px solid #30363d;
+                   border-radius: 10px; padding: .5rem .7rem; font-size: .95rem; }
+  select { max-width: 46vw; }
+  #play { background: #ffd43b; color: #111; border: none; font-weight: 700; cursor: pointer; }
+  #slider { accent-color: #ffd43b; width: 150px; }
+  #minlabel { font-weight: 700; min-width: 4.8rem; color: #ffd43b; }
+  #readout { font-size: .95rem; min-height: 1.35rem; margin: .15rem 0 .45rem; font-weight: 600; color: #ffd43b; }
+  #readout:empty::before { content: "Touche une station pour voir son temps de trajet."; color: #6e7681; font-weight: 400; }
+  #map { background: #0d1117; border: 1px solid #21262d; border-radius: 14px;
+         width: 100%; height: auto; display: block; touch-action: manipulation; }
+  #legend { margin-top: .6rem; line-height: 2; }
+  .li { display: inline-block; white-space: nowrap; background: #161b22; border: 1px solid #30363d;
+        border-radius: 999px; padding: .12rem .55rem; margin: .12rem; font-size: .78rem; color: #c9d1d9; }
+  .sw { display: inline-block; width: .65rem; height: .65rem; border-radius: 50%; margin-right: .35rem; vertical-align: baseline; }
+  .hint { font-size: .74rem; color: #6e7681; margin-top: .5rem; line-height: 1.5; }
   @media (max-width: 600px) {
-    body { margin: .7rem; }
-    select, button { font-size: 1rem; padding: .45rem .6rem; }
-    #slider { width: 150px; }
+    body { padding: .7rem; }
+    select { max-width: 58vw; }
   }
 </style>
 </head>
@@ -126,11 +173,12 @@ Temps calculés depuis l'heure demandée, attente du premier train incluse. Mét
   <span id="minlabel"></span>
   <button id="play">▶ Animer</button>
 </div>
-<div id="readout">Touche une station pour voir son temps de trajet.</div>
+<div id="readout"></div>
 <svg id="map" viewBox="0 0 900 900"></svg>
 <div id="legend"></div>
 <div class="hint">Stations colorées = atteignables dans le budget choisi ; stations grises = au-delà du budget.
-Chaque couleur correspond exactement à une bande de 10 minutes de la légende.</div>
+Chaque couleur correspond exactement à une bande de 10 minutes de la légende.
+Les tronçons sont dessinés avec la couleur officielle de leur ligne ; ils s'éclairent quand leurs deux bouts sont atteignables.</div>
 <script>
 const NS = "http://www.w3.org/2000/svg";
 const svg = document.getElementById("map");
@@ -155,7 +203,7 @@ const BANDS = [10, 20, 30, 40, 50, 60];
 const BAND_COLORS = BANDS.map(b => ramp(1 - (b - 5) / 60));
 function bandColor(m) {
   for (let i = 0; i < BANDS.length; i++) if (m <= BANDS[i]) return BAND_COLORS[i];
-  return null;  // beyond 60 min: not drawn colored
+  return null;
 }
 
 function project(lat, lon, bb) {
@@ -173,15 +221,38 @@ function render() {
   const st = DATA.stations, mins = DATA.minutes[oi][ti];
   const bb = DATA.bbox;
   const readout = document.getElementById("readout");
-  // every station as a grey dot first; reachable ones colored on top
+  const within = st.map((_, i) => mins[i] !== null && mins[i] <= budget);
+
+  // metro segments first, colored by official line color; lit when both
+  // endpoints are reachable within the budget
+  for (const [a, b, li] of DATA.edges) {
+    const [x1, y1] = project(st[a].lat, st[a].lon, bb);
+    const [x2, y2] = project(st[b].lat, st[b].lon, bb);
+    const ln = document.createElementNS(NS, "line");
+    ln.setAttribute("x1", x1); ln.setAttribute("y1", y1);
+    ln.setAttribute("x2", x2); ln.setAttribute("y2", y2);
+    ln.setAttribute("stroke", DATA.lines[li].color);
+    ln.setAttribute("stroke-width", within[a] && within[b] ? 2.6 : 1.4);
+    ln.setAttribute("stroke-opacity", within[a] && within[b] ? 0.8 : 0.18);
+    ln.setAttribute("stroke-linecap", "round");
+    svg.appendChild(ln);
+  }
+
   for (let i = 0; i < st.length; i++) {
     const [x, y] = project(st[i].lat, st[i].lon, bb);
     const m = mins[i];
-    const within = m !== null && m <= budget;
     const c = document.createElementNS(NS, "circle");
     c.setAttribute("cx", x); c.setAttribute("cy", y);
-    c.setAttribute("r", within ? 7 : 4);
-    c.setAttribute("fill", within ? bandColor(m) : "#cfcfcf");
+    if (within[i]) {
+      c.setAttribute("r", 6.5);
+      c.setAttribute("fill", bandColor(m));
+      c.setAttribute("stroke", "rgba(0,0,0,.4)"); c.setAttribute("stroke-width", "1");
+      c._baseStroke = "rgba(0,0,0,.4)"; c._baseWidth = "1";
+    } else {
+      c.setAttribute("r", 3.2);
+      c.setAttribute("fill", "#3a4149");
+      c._baseStroke = "none"; c._baseWidth = "0";
+    }
     c.style.cursor = "pointer";
     const t = document.createElementNS(NS, "title");
     t.textContent = m === null ? st[i].name : `${st[i].name} — ${Math.round(m)} min`;
@@ -190,24 +261,29 @@ function render() {
       readout.textContent = m === null
         ? `${st[i].name} : pas atteignable dans la journée calculée.`
         : `${st[i].name} : ${Math.round(m)} min depuis ${st[oi].name} (${DATA.departures[ti]}).`;
-      svg.querySelectorAll("circle[data-sel]").forEach(e => e.removeAttribute("data-sel"));
+      svg.querySelectorAll("circle").forEach(e => {
+        e.removeAttribute("data-sel");
+        e.setAttribute("stroke", e._baseStroke); e.setAttribute("stroke-width", e._baseWidth);
+      });
       c.setAttribute("data-sel", "1");
-      c.setAttribute("stroke", "#000"); c.setAttribute("stroke-width", "2");
-      svg.querySelectorAll("circle").forEach(e => { if (e !== c) { e.removeAttribute("stroke"); e.removeAttribute("stroke-width"); } });
+      c.setAttribute("stroke", "#ffffff"); c.setAttribute("stroke-width", "2.5");
     });
     svg.appendChild(c);
   }
+
   const [ox, oy] = project(st[oi].lat, st[oi].lon, bb);
   const star = document.createElementNS(NS, "text");
-  star.setAttribute("x", ox); star.setAttribute("y", oy + 8);
-  star.setAttribute("font-size", "22"); star.setAttribute("text-anchor", "middle");
-  star.textContent = "★"; star.setAttribute("fill", "#d62728");
+  star.setAttribute("x", ox); star.setAttribute("y", oy + 7);
+  star.setAttribute("font-size", "20"); star.setAttribute("text-anchor", "middle");
+  star.textContent = "★"; star.setAttribute("fill", "#ffffff");
+  star.setAttribute("stroke", "#000000"); star.setAttribute("stroke-width", ".6");
   svg.appendChild(star);
+
   let lg = "";
   BANDS.forEach((b, i) => {
     lg += `<span class="li"><span class="sw" style="background:${BAND_COLORS[i]}"></span>≤ ${b} min</span>`;
   });
-  legend.innerHTML = lg + `<span class="li"><span class="sw" style="background:#cfcfcf"></span>au-delà du budget</span>`;
+  legend.innerHTML = lg + `<span class="li"><span class="sw" style="background:#3a4149"></span>au-delà du budget</span>`;
 }
 
 function togglePlay() {
@@ -235,7 +311,7 @@ fetch("data.json").then(r => r.json()).then(d => {
     o.value = i; o.textContent = `${d.date} ${lbl}`;
     dtimeSel.appendChild(o);
   });
-  // Optional deep link: ?origin=<name>&time=<index>&min=<budget>
+  // Optional deep link: ?origin=<name>&time=<index>&min=<budget>&focus=<name>
   const q = new URLSearchParams(location.search);
   if (q.has("origin")) {
     const i = d.stations.findIndex(s => s.name === q.get("origin"));
@@ -243,9 +319,7 @@ fetch("data.json").then(r => r.json()).then(d => {
   }
   if (q.has("time")) dtimeSel.value = q.get("time");
   if (q.has("min")) slider.value = q.get("min");
-  if (q.has("focus")) {  // pre-select a station in the readout (deep links, tests)
-    window._focus = q.get("focus");
-  }
+  if (q.has("focus")) window._focus = q.get("focus");
   originSel.onchange = dtimeSel.onchange = slider.oninput = render;
   document.getElementById("play").onclick = togglePlay;
   render();
