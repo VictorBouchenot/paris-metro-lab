@@ -43,6 +43,23 @@ min, shown as 27).
 minute). From Châtelet at 08:30 on a weekday, all 321 metro stations are
 reachable within 45 minutes on the theoretical timetable.
 
+## Interactive map
+
+`python -m metro_lab.cli web` builds a static page in `web/` (no backend,
+no JavaScript dependencies): pick the origin station and the departure time,
+drag the time-budget slider or press play to watch the reachable area grow.
+It runs anywhere static files are served, e.g. GitHub Pages.
+
+How it works: the router precomputes earliest-arrival scans from every one
+of the 321 stations at three preset departures (08:30, 12:30, 18:30 on the
+chosen weekday) and stores the minutes, quantized to 30 s, in a 1.5 MB
+`data.json`. The page only reads that file; it never recomputes routes.
+Consequences, stated honestly: interactivity is limited to those preset
+departure times, and everything shown comes from the same theoretical
+timetable as the rest of the project. Regenerating the data takes a few
+minutes (321 scans per departure time). Deep links are supported:
+`index.html?origin=Nation&time=2&min=45`.
+
 ## Method
 
 - **Stations, not platforms.** The feed models every platform and entrance
@@ -137,9 +154,11 @@ src/metro_lab/
   csa.py         connection scan, itinerary reconstruction
   isochrone.py   travel-time maps (static PNG, animated GIF)
   validate.py    internal consistency + external comparison
-  cli.py         download / route / isochrone / validate
+  webexport.py   precomputed scans + static interactive page
+  cli.py         download / route / isochrone / validate / web
 tests/           unit tests on a synthetic two-line network
 examples/        generated maps (gitignored)
+web/             interactive page: index.html + precomputed data.json
 ```
 
 Pure Python + pandas/numpy/matplotlib; tests use the standard-library

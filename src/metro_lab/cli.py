@@ -71,6 +71,17 @@ def cmd_isochrone(args) -> None:
         print(f"Wrote {args.gif}")
 
 
+def cmd_web(args) -> None:
+    from .webexport import write_web
+
+    net = _load()
+    date = pd.Timestamp(args.date)
+    labels = args.times.split(",")
+    times = [int(t.split(":")[0]) * 3600 + int(t.split(":")[1]) * 60 for t in labels]
+    path = write_web(net, date, labels, times, Path(args.out))
+    print(f"Wrote {path} (+ index.html). Serve the folder statically, e.g. GitHub Pages.")
+
+
 def cmd_validate(args) -> None:
     from .validate import run_validation
 
@@ -88,6 +99,8 @@ def main() -> None:
                                       ("--gif", {"default": None}),
                                       ("--max-minutes", {"type": int, "default": 60})]),
         ("validate", cmd_validate, []),
+        ("web", cmd_web, [("--out", {"default": "web"}),
+                          ("--times", {"default": "08:30,12:30,18:30"})]),
     ):
         sp = sub.add_parser(name)
         for arg, kw in extra:
