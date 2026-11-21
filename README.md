@@ -45,10 +45,10 @@ reachable within 45 minutes on the theoretical timetable.
 
 ## Interactive map
 
-`python -m metro_lab.cli web` builds a static page in `web/` (no backend,
+`python -m metro_lab.cli web` builds a static page in `docs/` (no backend,
 no JavaScript dependencies): pick the origin station and the departure time,
 drag the time-budget slider or press play to watch the reachable area grow.
-It runs anywhere static files are served, e.g. GitHub Pages.
+It runs anywhere static files are served; on GitHub the repo enables Pages from the `docs/` folder of `main`.
 
 How it works: the router precomputes earliest-arrival scans from every one
 of the 321 stations at three preset departures (08:30, 12:30, 18:30 on the
@@ -58,7 +58,7 @@ Consequences, stated honestly: interactivity is limited to those preset
 departure times, and everything shown comes from the same theoretical
 timetable as the rest of the project. Regenerating the data takes a few
 minutes (321 scans per departure time). Deep links are supported:
-`index.html?origin=Nation&time=2&min=45`.
+`docs/index.html?origin=Nation&time=2&min=45`.
 
 ## Method
 
@@ -158,7 +158,7 @@ src/metro_lab/
   cli.py         download / route / isochrone / validate / web
 tests/           unit tests on a synthetic two-line network
 examples/        generated maps (gitignored)
-web/             interactive page: index.html + precomputed data.json
+docs/            interactive page: index.html + precomputed data.json
 ```
 
 Pure Python + pandas/numpy/matplotlib; tests use the standard-library

@@ -99,7 +99,7 @@ def main() -> None:
                                       ("--gif", {"default": None}),
                                       ("--max-minutes", {"type": int, "default": 60})]),
         ("validate", cmd_validate, []),
-        ("web", cmd_web, [("--out", {"default": "web"}),
+        ("web", cmd_web, [("--out", {"default": "docs"}),
                           ("--times", {"default": "08:30,12:30,18:30"})]),
     ):
         sp = sub.add_parser(name)
